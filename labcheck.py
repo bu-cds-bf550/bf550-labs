@@ -52,3 +52,87 @@ def check(name, expect, args=None, hint=""):
         _report("❌", f"{label} came back with {value!r}; expected {expect!r}.")
         if hint:
             print(f"   Hint: {hint}")
+
+
+# ---------------------------------------------------------------------------
+# Added for the problem sets (Sep 2026). Same contract: report, never raise.
+
+_results = []      # every check's (label, passed), in order — what a grader reads
+_since_summary = 0
+
+
+def ready(*names):
+    """Report which of `names` are not yet defined in the notebook. True when all are."""
+    namespace = inspect.currentframe().f_back.f_globals
+    missing = [n for n in names if n not in namespace]
+    for n in missing:
+        _report("⬜", f"{n} — not defined yet. Write it in the cell above, run that cell, "
+                      "then re-run this one.")
+        _results.append((f"{n} defined", False))
+    return not missing
+
+
+def check_that(label, condition, detail=""):
+    """Report whether `condition` holds. `label` is the claim in words; `detail` is what
+    came back, shown only on failure."""
+    global _since_summary
+    passed = bool(condition)
+    _results.append((label, passed))
+    _since_summary += 1
+    if passed:
+        _report("✅", label)
+    else:
+        _report("❌", label)
+        if detail:
+            print(f"   {detail}")
+
+
+def summary(label):
+    """One line closing a check cell: how many of its checks passed."""
+    global _since_summary
+    recent = _results[-_since_summary:] if _since_summary else []
+    passed = sum(1 for _, ok in recent if ok)
+    mark = "✅" if passed == len(recent) and recent else "❌"
+    _report(mark, f"{label}: {passed} of {len(recent)} checks passed")
+    _since_summary = 0
+
+
+def results():
+    """Every check so far, as (label, passed) pairs."""
+    return list(_results)
+
+
+class checks:
+    """A check cell:  with checks("Question 3"):  ...check_that(...)...
+
+    Nothing inside raises to the notebook. A function that does not exist yet, or one whose
+    body is still the stub, reports ⬜; any other exception reports ⚠️ with its message; and
+    the block closes with a one-line count.
+    """
+
+    def __init__(self, label):
+        self.label = label
+
+    def __enter__(self):
+        global _since_summary
+        _since_summary = 0
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        global _since_summary
+        if exc_type is NameError:
+            name = str(exc).split("'")[1] if "'" in str(exc) else str(exc)
+            _report("⬜", f"{name} — not defined yet. Write it in the cell above, run that cell, "
+                          "then re-run this one.")
+            _results.append((f"{self.label}: {name} defined", False)); _since_summary += 1
+        elif exc_type is NotImplementedError:
+            _report("⬜", f"{self.label} — not written yet: a function above still has its "
+                          "`raise NotImplementedError` line. Replace it with your code.")
+            _results.append((f"{self.label}: written", False)); _since_summary += 1
+        elif exc_type is not None:
+            _report("⚠️", f"{self.label} — your code raised {exc_type.__name__}: {exc}")
+            print("   Read the message, fix the cell above, and re-run this one.")
+            _results.append((f"{self.label}: ran without error", False)); _since_summary += 1
+        if exc_type is None:
+            summary(self.label)     # the count only means something when the checks ran
+        return True   # a check cell never shows a traceback
